@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>天机AI助手</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #2c7bfe;
+    --primary-dark: #1c5fd0;
+    --bg: #f5f7fb;
+    --sidebar: #1f2937;
+    --sidebar-hover: #2b3648;
+    --text: #1f2937;
+    --text-light: #6b7280;
+    --border: #e5e7eb;
+    --bubble-user: #2c7bfe;
+    --bubble-ai: #ffffff;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
+  }
+  .hidden { display: none !important; }
+
+  /* ============ 登录页 ============ */
+  #loginView {
+    height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #e8f0ff 0%, #f5f7fb 60%, #e6fbf5 100%);
+  }
+  .login-card {
+    width: 380px; background: #fff; border-radius: 16px; padding: 40px 36px;
+    box-shadow: 0 12px 40px rgba(31, 41, 55, .12);
+  }
+  .login-card h1 { font-size: 24px; margin-bottom: 6px; }
+  .login-card h1 span { color: var(--primary); }
+  .login-card .sub { color: var(--text-light); font-size: 13px; margin-bottom: 28px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 13px; color: var(--text-light); margin-bottom: 6px; }
+  .field input {
+    width: 100%; height: 42px; border: 1px solid var(--border); border-radius: 10px;
+    padding: 0 12px; font-size: 14px; outline: none; transition: border-color .2s;
+  }
+  .field input:focus { border-color: var(--primary); }
+  .btn {
+    width: 100%; height: 44px; border: none; border-radius: 10px; cursor: pointer;
+    background: var(--primary); color: #fff; font-size: 15px; font-weight: 500;
+    transition: background .2s;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn:disabled { background: #9ca3af; cursor: not-allowed; }
+  .login-tip { margin-top: 14px; font-size: 12px; color: #9ca3af; line-height: 1.7; }
+  .err { color: #ef4444; font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+  /* ============ 主界面 ============ */
+  #appView { height: 100vh; display: flex; }
+  .sidebar {
+    width: 260px; background: var(--sidebar); color: #d1d5db; display: flex;
+    flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-head { padding: 18px 16px 12px; }
+  .sidebar-head .logo { color: #fff; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .sidebar-head .logo i { font-style: normal; font-size: 20px; }
+  .new-chat {
+    margin-top: 14px; width: 100%; height: 38px; border-radius: 9px; border: 1px solid #374151;
+    background: transparent; color: #e5e7eb; cursor: pointer; font-size: 13px;
+  }
+  .new-chat:hover { background: var(--sidebar-hover); border-color: #4b5563; }
+  .history { flex: 1; overflow-y: auto; padding: 8px; }
+  .history .group-title { font-size: 12px; color: #6b7280; padding: 10px 8px 4px; }
+  .history .item {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #cbd5e1;
+  }
+  .history .item:hover { background: var(--sidebar-hover); }
+  .history .item.active { background: #374151; color: #fff; }
+  .sidebar-foot { padding: 12px 16px; border-top: 1px solid #374151; font-size: 12px; color: #9ca3af; }
+  .sidebar-foot .user { display: flex; justify-content: space-between; align-items: center; }
+  .sidebar-foot a { color: #93c5fd; cursor: pointer; text-decoration: none; }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .main-head {
+    height: 56px; background: #fff; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; padding: 0 20px; flex-shrink: 0;
+  }
+  .main-head .title { font-size: 15px; font-weight: 600; }
+  .main-head .actions button {
+    height: 32px; padding: 0 12px; margin-left: 8px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: #fff; font-size: 13px; color: var(--text);
+  }
+  .main-head .actions button:hover { border-color: var(--primary); color: var(--primary); }
+
+  .chat-area { flex: 1; overflow-y: auto; padding: 24px 0; }
+  .welcome { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+  .welcome h2 { font-size: 22px; margin-bottom: 8px; }
+  .welcome p { color: var(--text-light); font-size: 14px; margin-bottom: 22px; line-height: 1.7; }
+  .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .example {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+    cursor: pointer; transition: all .2s;
+  }
+  .example:hover { border-color: var(--primary); box-shadow: 0 4px 14px rgba(44,123,254,.12); transform: translateY(-1px); }
+  .example .t { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .example .d { font-size: 13px; color: var(--text-light); }
+
+  .msg { max-width: 760px; margin: 0 auto 20px; padding: 0 24px; display: flex; gap: 12px; }
+  .msg .avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; display: flex;
+    align-items: center; justify-content: center; font-size: 15px; color: #fff;
+  }
+  .msg.user .avatar { background: #6b7280; }
+  .msg.assistant .avatar { background: linear-gradient(135deg, #2c7bfe, #22c1a2); }
+  .msg .bubble {
+    padding: 11px 15px; border-radius: 12px; font-size: 14px; line-height: 1.75;
+    white-space: pre-wrap; word-break: break-word; max-width: calc(100% - 60px);
+  }
+  .msg.user { flex-direction: row-reverse; }
+  .msg.user .bubble { background: var(--bubble-user); color: #fff; border-top-right-radius: 4px; }
+  .msg.assistant .bubble { background: var(--bubble-ai); border: 1px solid var(--border); border-top-left-radius: 4px; }
+  .msg .bubble .cursor { display: inline-block; width: 7px; height: 15px; background: var(--primary);
+    margin-left: 2px; vertical-align: -2px; animation: blink 1s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .params-card {
+    margin-top: 10px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 10px;
+    padding: 10px 12px; font-size: 13px;
+  }
+  .params-card .h { font-weight: 600; margin-bottom: 6px; color: var(--primary); }
+  .params-card pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; color: #475569; }
+
+  .input-area { background: #fff; border-top: 1px solid var(--border); padding: 14px 24px 18px; flex-shrink: 0; }
+  .input-box {
+    max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end;
+    border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; transition: border-color .2s;
+  }
+  .input-box:focus-within { border-color: var(--primary); }
+  .input-box textarea {
+    flex: 1; border: none; outline: none; resize: none; font-size: 14px; line-height: 1.6;
+    max-height: 120px; min-height: 24px; font-family: inherit; padding: 4px 2px;
+  }
+  .input-box button {
+    width: 36px; height: 36px; border: none; border-radius: 9px; cursor: pointer; flex-shrink: 0;
+    background: var(--primary); color: #fff; font-size: 16px;
+  }
+  .input-box button:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+  /* 写作助手弹窗 */
+  .modal-mask { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal { width: 640px; max-height: 82vh; background: #fff; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; }
+  .modal .m-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal .m-head .m-title { font-size: 16px; font-weight: 600; }
+  .modal .m-head .close { cursor: pointer; color: var(--text-light); font-size: 20px; line-height: 1; }
+  .modal .m-body { padding: 18px 20px; overflow-y: auto; }
+  .tpl-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tpl { padding: 7px 14px; border-radius: 20px; border: 1px solid var(--border); background: #fff; cursor: pointer; font-size: 13px; }
+  .tpl.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .modal textarea {
+    width: 100%; min-height: 90px; border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 14px; font-family: inherit; outline: none; resize: vertical;
+  }
+  .modal .m-foot { padding: 0 20px 18px; display: flex; justify-content: flex-end; gap: 10px; }
+  .modal .m-foot button { height: 38px; padding: 0 20px; border-radius: 9px; border: none; cursor: pointer; font-size: 14px; }
+  .modal .m-foot .primary { background: var(--primary); color: #fff; }
+  .modal .m-foot .ghost { background: #f1f5f9; color: var(--text); }
+  .tpl-result { margin-top: 16px; background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 14px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="loginView">
+  <div class="login-card">
+    <h1>天机<span>AI助手</span></h1>
+    <div class="sub">登录后即可体验课程推荐、课程咨询与知识讲解</div>
+    <div class="field">
+      <label>手机号</label>
+      <input id="phone" type="text" placeholder="请输入手机号" value="" />
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="password" type="password" placeholder="请输入密码" value="" />
+    </div>
+    <button class="btn" id="loginBtn">登 录</button>
+    <div class="err" id="loginErr"></div>
+    <div class="login-tip">请使用你自己配置的测试账号<br/>网关地址：http://localhost:10010</div>
+  </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="appView" class="hidden">
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <div class="logo"><i>🤖</i> 天机AI助手</div>
+      <button class="new-chat" id="newChatBtn">+ 新建对话</button>
+    </div>
+    <div class="history" id="historyList"></div>
+    <div class="sidebar-foot">
+      <div class="user">
+        <span id="userLabel">未登录</span>
+        <a id="logoutBtn">退出</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="main-head">
+      <div class="title" id="chatTitle">新对话</div>
+      <div class="actions">
+        <button id="writeBtn">✍️ 智能写作</button>
+        <button id="refreshBtn">↻ 刷新会话</button>
+      </div>
+    </div>
+
+    <div class="chat-area" id="chatArea">
+      <div class="welcome" id="welcome">
+        <h2>你好，我是天机AI助理 👋</h2>
+        <p id="welcomeDesc">我可以帮你推荐课程、解答课程疑问、讲解知识点。试试下面的问题：</p>
+        <div class="examples" id="exampleList"></div>
+      </div>
+      <div id="messages"></div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-box">
+        <textarea id="questionInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
+        <button id="sendBtn" title="发送">➤</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 配置 ================= */
+const API = 'http://localhost:10010';   // 网关地址
+let token = localStorage.getItem('tj_token') || '';
+let sessionId = null;
+let streaming = false;
+let abortCtrl = null;
+
+const $ = id => document.getElementById(id);
+
+/* ================= 通用请求 ================= */
+async function api(path, {method = 'GET', body, json = true, headers = {}} = {}) {
+  const h = {...headers};
+  if (token) h['Authorization'] = token;
+  if (json) h['Content-Type'] = 'application/json;charset=utf-8';
+  const resp = await fetch(API + path, {method, headers: h, body});
+  if (resp.status === 401) { logout(); throw new Error('登录已过期，请重新登录'); }
+  const text = await resp.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  // 非 JSON 请求（如 /chat/text 返回纯文本）也可能被网关包装成 {code,msg,data}
+  if (data && typeof data === 'object' && 'code' in data) {
+    if (data.code !== 200) throw new Error(data.msg || '请求失败');
+    return data.data;
+  }
+  return data;
+}
+
+/* ================= 登录 / 退出 ================= */
+async function login() {
+  const phone = $('phone').value.trim();
+  const password = $('password').value;
+  if (!phone || !password) { $('loginErr').textContent = '请输入手机号和密码'; return; }
+  $('loginBtn').disabled = true; $('loginErr').textContent = '';
+  try {
+    const data = await api('/as/accounts/login', {
+      method: 'POST', json: true,
+      body: JSON.stringify({type: 1, cellPhone: phone, password, rememberMe: true})
+    });
+    token = data;
+    localStorage.setItem('tj_token', token);
+    localStorage.setItem('tj_phone', phone);
+    showApp();
+  } catch (e) {
+    $('loginErr').textContent = e.message || '登录失败';
+  } finally {
+    $('loginBtn').disabled = false;
+  }
+}
+
+function logout() {
+  token = ''; sessionId = null;
+  localStorage.removeItem('tj_token');
+  $('appView').classList.add('hidden');
+  $('loginView').classList.remove('hidden');
+}
+
+function showApp() {
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  $('userLabel').textContent = '👤 ' + (localStorage.getItem('tj_phone') || '用户');
+  loadHistory();
+  newSession();
+}
+
+/* ================= 会话 ================= */
+async function newSession() {
+  try {
+    const s = await api('/ais/session?n=4', {method: 'POST'});
+    sessionId = s.sessionId;
+    $('chatTitle').textContent = s.title || '新对话';
+    $('welcomeDesc').textContent = s.describe || '试试下面的问题：';
+    renderExamples(s.examples || []);
+    clearMessages();
+    $('welcome').classList.remove('hidden');
+    loadHistory();
+  } catch (e) { alert('创建会话失败：' + e.message); }
+}
+
+function renderExamples(examples) {
+  $('exampleList').innerHTML = examples.map(e =>
+    `<div class="example" data-q="${escapeHtml(e.describe)}">
+       <div class="t">${escapeHtml(e.title)}</div>
+       <div class="d">${escapeHtml(e.describe)}</div>
+     </div>`).join('');
+  $('exampleList').querySelectorAll('.example').forEach(el => {
+    el.onclick = () => { $('questionInput').value = el.dataset.q; send(); };
+  });
+}
+
+async function loadHistory() {
+  try {
+    const data = await api('/ais/session/history');
+    const box = $('historyList');
+    if (!data || !Object.keys(data).length) { box.innerHTML = '<div class="group-title">暂无历史会话</div>'; return; }
+    box.innerHTML = Object.entries(data).map(([group, list]) => `
+      <div class="group-title">${escapeHtml(group)}</div>
+      ${list.map(s => `<div class="item ${s.sessionId === sessionId ? 'active' : ''}" data-id="${s.sessionId}">${escapeHtml(s.title || '未命名会话')}</div>`).join('')}
+    `).join('');
+    box.querySelectorAll('.item').forEach(el => {
+      el.onclick = () => openSession(el.dataset.id, el.textContent);
+    });
+  } catch (e) { /* 忽略 */ }
+}
+
+async function openSession(id, title) {
+  sessionId = id;
+  $('chatTitle').textContent = title || '历史会话';
+  clearMessages();
+  $('welcome').classList.add('hidden');
+  try {
+    const msgs = await api('/ais/session/' + encodeURIComponent(id));
+    (msgs || []).forEach(m => addMessage(m.type === 'USER' ? 'user' : 'assistant', m.content, m.params));
+    loadHistory();
+  } catch (e) { alert('加载历史失败：' + e.message); }
+}
+
+/* ================= 消息渲染 ================= */
+function clearMessages() { $('messages').innerHTML = ''; }
+
+function addMessage(role, content, params) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const avatar = role === 'user' ? '👤' : '🤖';
+  let paramsHtml = '';
+  if (params && Object.keys(params).length) {
+    paramsHtml = `<div class="params-card"><div class="h">📎 附加数据</div><pre>${escapeHtml(JSON.stringify(params, null, 2))}</pre></div>`;
+  }
+  div.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble">${escapeHtml(content || '')}${paramsHtml}</div>`;
+  $('messages').appendChild(div);
+  scrollBottom();
+  return div.querySelector('.bubble');
+}
+
+function scrollBottom() {
+  const area = $('chatArea');
+  area.scrollTop = area.scrollHeight;
+}
+
+/* ================= 发送（SSE 流式） ================= */
+async function send() {
+  if (streaming) return;
+  const q = $('questionInput').value.trim();
+  if (!q) return;
+  if (!sessionId) await newSession();
+
+  $('questionInput').value = '';
+  $('welcome').classList.add('hidden');
+  addMessage('user', q);
+  const bubble = addMessage('assistant', '');
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  bubble.appendChild(cursor);
+
+  streaming = true; $('sendBtn').disabled = true;
+  abortCtrl = new AbortController();
+  let answer = '';
+  try {
+    const resp = await fetch(`${API}/ais/chat`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json;charset=utf-8', 'Authorization': token},
+      body: JSON.stringify({question: q, sessionId}),
+      signal: abortCtrl.signal
+    });
+    if (resp.status === 401) { logout(); throw new Error('登录已过期'); }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop();
+      for (const block of blocks) {
+        const line = block.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        let ev; try { ev = JSON.parse(payload); } catch { continue; }
+        if (ev.eventType === 1001 && ev.eventData != null) {
+          answer += ev.eventData;
+          cursor.remove();
+          bubble.textContent = answer;
+          if (ev.eventData) bubble.appendChild(cursor);
+          scrollBottom();
+        } else if (ev.eventType === 1003 && ev.eventData) {
+          const card = document.createElement('div');
+          card.className = 'params-card';
+          card.innerHTML = `<div class="h">📎 附加数据</div><pre>${escapeHtml(JSON.stringify(ev.eventData, null, 2))}</pre>`;
+          bubble.parentElement.appendChild(card);
+        }
+        // 1002 = STOP
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      cursor.remove();
+      bubble.textContent = (answer || '') + '\n[出错了：' + e.message + ']';
+    }
+  } finally {
+    cursor.remove();
+    streaming = false; $('sendBtn').disabled = false; abortCtrl = null;
+  }
+}
+
+function stopGenerate() {
+  if (abortCtrl) abortCtrl.abort();
+  if (sessionId) api(`/ais/chat/stop?sessionId=${encodeURIComponent(sessionId)}`, {method: 'POST'}).catch(() => {});
+}
+
+/* ================= 智能写作 ================= */
+const FALLBACK_TEMPLATES = {
+  associationalWord: '用户输入关键词：$input|生成规则：生成3个，每个问题含【$input】不超过20字|输出要求：纯文本，问题间用|分隔',
+  helpedWrite: '基于用户提供的主题/关键词，智能生成完整的文案内容（如文章、邮件、报告等），帮助用户快速搭建内容框架\n用户输入：\n$input',
+  continuedWrite: '在用户已有文本基础上，自动延续写作思路生成后续内容，保持上下文逻辑连贯性\n用户输入：\n$input',
+  polish: '对现有文本进行语言优化，包括调整句式结构、替换精准词汇、统一行文风格等\n用户输入：\n$input',
+  streamline: '通过语义分析智能提炼核心信息，删除冗余表达，将长文本压缩为简洁版本\n用户输入：\n$input'
+};
+const TPL_NAMES = {associationalWord: '联想问题', helpedWrite: '帮我写', continuedWrite: '帮我续写', polish: '帮我润色', streamline: '帮我精简'};
+let templates = FALLBACK_TEMPLATES;
+let currentTpl = 'polish';
+
+function openWriter() {
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.innerHTML = `
+    <div class="modal">
+      <div class="m-head"><div class="m-title">✍️ 智能写作</div><div class="close">×</div></div>
+      <div class="m-body">
+        <div class="tpl-list">${Object.keys(templates).map(k =>
+          `<div class="tpl ${k === currentTpl ? 'active' : ''}" data-k="${k}">${TPL_NAMES[k] || k}</div>`).join('')}</div>
+        <textarea id="tplInput" placeholder="在这里输入内容，例如：Java高级架构与微服务"></textarea>
+        <div class="tpl-result hidden" id="tplResult"></div>
+      </div>
+      <div class="m-foot">
+        <button class="ghost" id="tplClose">关闭</button>
+        <button class="primary" id="tplRun">生成</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mask);
+  const close = () => mask.remove();
+  mask.querySelector('.close').onclick = close;
+  mask.querySelector('#tplClose').onclick = close;
+  mask.querySelectorAll('.tpl').forEach(el => {
+    el.onclick = () => {
+      currentTpl = el.dataset.k;
+      mask.querySelectorAll('.tpl').forEach(x => x.classList.toggle('active', x === el));
+    };
+  });
+  mask.querySelector('#tplRun').onclick = async () => {
+    const input = mask.querySelector('#tplInput').value.trim();
+    if (!input) { alert('请先输入内容'); return; }
+    const btn = mask.querySelector('#tplRun');
+    btn.disabled = true; btn.textContent = '生成中...';
+    const result = mask.querySelector('#tplResult');
+    result.classList.remove('hidden');
+    result.textContent = '思考中...';
+    try {
+      const prompt = (templates[currentTpl] || '').replaceAll('$input', input);
+      const text = await api('/ais/chat/text', {
+        method: 'POST', json: false,
+        headers: {'Content-Type': 'text/plain;charset=utf-8'},
+        body: prompt
+      });
+      result.textContent = typeof text === 'string' ? text : JSON.stringify(text);
+    } catch (e) {
+      result.textContent = '生成失败：' + e.message;
+    } finally {
+      btn.disabled = false; btn.textContent = '生成';
+    }
+  };
+  mask.querySelector('#tplInput').focus();
+}
+
+async function loadTemplates() {
+  try {
+    const t = await api('/ais/chat/templates');
+    if (t && typeof t === 'object') templates = t;
+  } catch (e) { /* 用兜底模板 */ }
+}
+
+/* ================= 工具 ================= */
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+/* ================= 事件绑定 ================= */
+$('loginBtn').onclick = login;
+$('password').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+$('logoutBtn').onclick = logout;
+$('newChatBtn').onclick = newSession;
+$('refreshBtn').onclick = () => loadHistory();
+$('writeBtn').onclick = openWriter;
+$('sendBtn').onclick = () => (streaming ? stopGenerate() : send());
+$('questionInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$('questionInput').addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+/* 启动 */
+(async function init() {
+  await loadTemplates();
+  if (token) { showApp(); } else { $('loginView').classList.remove('hidden'); }
+})();
+</script>
+</body>
+</html>
