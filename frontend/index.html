@@ -140,7 +140,7 @@
   }
   .input-box button {
     width: 36px; height: 36px; border: none; border-radius: 9px; cursor: pointer; flex-shrink: 0;
-    background: var(--primary); color: #fff; font-size: 16px;
+    background: var(--primary); color: #fff; font-size: 16px; padding: 0; white-space: nowrap;
   }
   .input-box button:disabled { background: #cbd5e1; cursor: not-allowed; }
 
@@ -229,23 +229,33 @@
   </div>
 </div>
 
+<script src="./sse.js"></script>
 <script>
 /* ================= 配置 ================= */
 const API = 'http://localhost:10010';   // 网关地址
 let token = localStorage.getItem('tj_token') || '';
 let sessionId = null;
 let streaming = false;
-let abortCtrl = null;
+let activeStream = null;
+let sessionVersion = 0;
+let sessionTask = null;
+let pendingSend = null;
 
 const $ = id => document.getElementById(id);
 
 /* ================= 通用请求 ================= */
 async function api(path, {method = 'GET', body, json = true, headers = {}} = {}) {
   const h = {...headers};
-  if (token) h['Authorization'] = token;
+  const requestToken = token;
+  const version = sessionVersion;
+  if (requestToken) h['Authorization'] = requestToken;
   if (json) h['Content-Type'] = 'application/json;charset=utf-8';
   const resp = await fetch(API + path, {method, headers: h, body});
-  if (resp.status === 401) { logout(); throw new Error('登录已过期，请重新登录'); }
+  if (resp.status === 401) {
+    if (requestToken === token && version === sessionVersion) logout();
+    throw new Error('登录已过期，请重新登录');
+  }
+  if (!resp.ok) throw new Error('请求失败（HTTP ' + resp.status + '）');
   const text = await resp.text();
   let data;
   try { data = JSON.parse(text); } catch { data = text; }
@@ -280,8 +290,10 @@ async function login() {
 }
 
 function logout() {
-  token = ''; sessionId = null;
+  changeSession();
+  token = '';
   localStorage.removeItem('tj_token');
+  $('historyList').innerHTML = '';
   $('appView').classList.add('hidden');
   $('loginView').classList.remove('hidden');
 }
@@ -295,17 +307,45 @@ function showApp() {
 }
 
 /* ================= 会话 ================= */
-async function newSession() {
-  try {
-    const s = await api('/ais/session?n=4', {method: 'POST'});
-    sessionId = s.sessionId;
-    $('chatTitle').textContent = s.title || '新对话';
-    $('welcomeDesc').textContent = s.describe || '试试下面的问题：';
-    renderExamples(s.examples || []);
-    clearMessages();
-    $('welcome').classList.remove('hidden');
-    loadHistory();
-  } catch (e) { alert('创建会话失败：' + e.message); }
+function changeSession() {
+  ++sessionVersion;
+  stopGenerate();
+  sessionId = null;
+  sessionTask = null;
+  pendingSend = null;
+  clearMessages();
+  $('welcome').classList.add('hidden');
+  return sessionVersion;
+}
+
+function newSession() {
+  const version = changeSession();
+  $('chatTitle').textContent = '新对话';
+  const task = {};
+  sessionTask = task;
+  task.promise = (async () => {
+    try {
+      const s = await api('/ais/session?n=4', {method: 'POST'});
+      if (version !== sessionVersion) return null;
+      const id = s && s.sessionId;
+      if ((typeof id !== 'string' && typeof id !== 'number') || !String(id).trim()) {
+        throw new Error('服务未返回有效会话 ID');
+      }
+      $('chatTitle').textContent = s.title || '新对话';
+      $('welcomeDesc').textContent = s.describe || '试试下面的问题：';
+      renderExamples(s.examples || []);
+      $('welcome').classList.remove('hidden');
+      sessionId = String(id);
+      loadHistory();
+      return sessionId;
+    } catch (e) {
+      if (version === sessionVersion) alert('创建会话失败：' + e.message);
+      return null;
+    } finally {
+      if (sessionTask === task) sessionTask = null;
+    }
+  })();
+  return task.promise;
 }
 
 function renderExamples(examples) {
@@ -320,13 +360,15 @@ function renderExamples(examples) {
 }
 
 async function loadHistory() {
+  const version = sessionVersion;
   try {
     const data = await api('/ais/session/history');
+    if (version !== sessionVersion) return;
     const box = $('historyList');
     if (!data || !Object.keys(data).length) { box.innerHTML = '<div class="group-title">暂无历史会话</div>'; return; }
     box.innerHTML = Object.entries(data).map(([group, list]) => `
       <div class="group-title">${escapeHtml(group)}</div>
-      ${list.map(s => `<div class="item ${s.sessionId === sessionId ? 'active' : ''}" data-id="${s.sessionId}">${escapeHtml(s.title || '未命名会话')}</div>`).join('')}
+      ${list.map(s => `<div class="item ${String(s.sessionId) === sessionId ? 'active' : ''}" data-id="${escapeHtml(s.sessionId)}">${escapeHtml(s.title || '未命名会话')}</div>`).join('')}
     `).join('');
     box.querySelectorAll('.item').forEach(el => {
       el.onclick = () => openSession(el.dataset.id, el.textContent);
@@ -334,16 +376,27 @@ async function loadHistory() {
   } catch (e) { /* 忽略 */ }
 }
 
-async function openSession(id, title) {
-  sessionId = id;
+function openSession(id, title) {
+  const version = changeSession();
   $('chatTitle').textContent = title || '历史会话';
-  clearMessages();
-  $('welcome').classList.add('hidden');
-  try {
-    const msgs = await api('/ais/session/' + encodeURIComponent(id));
-    (msgs || []).forEach(m => addMessage(m.type === 'USER' ? 'user' : 'assistant', m.content, m.params));
-    loadHistory();
-  } catch (e) { alert('加载历史失败：' + e.message); }
+  const task = {};
+  sessionTask = task;
+  task.promise = (async () => {
+    try {
+      const msgs = await api('/ais/session/' + encodeURIComponent(id));
+      if (version !== sessionVersion) return null;
+      (msgs || []).forEach(m => addMessage(m.type === 'USER' ? 'user' : 'assistant', m.content, m.params));
+      sessionId = id;
+      loadHistory();
+      return sessionId;
+    } catch (e) {
+      if (version === sessionVersion) alert('加载历史失败：' + e.message);
+      return null;
+    } finally {
+      if (sessionTask === task) sessionTask = null;
+    }
+  })();
+  return task.promise;
 }
 
 /* ================= 消息渲染 ================= */
@@ -369,12 +422,37 @@ function scrollBottom() {
 }
 
 /* ================= 发送（SSE 流式） ================= */
+function updateSendButton() {
+  const button = $('sendBtn');
+  button.disabled = false;
+  button.textContent = streaming ? '停止' : '➤';
+  button.title = streaming ? '停止生成' : '发送';
+  button.setAttribute('aria-label', button.title);
+}
+
+function isCurrentStream(run) {
+  return activeStream === run && run.version === sessionVersion && !run.controller.signal.aborted;
+}
+
 async function send() {
-  if (streaming) return;
+  if (streaming || pendingSend) return;
   const q = $('questionInput').value.trim();
   if (!q) return;
-  if (!sessionId) await newSession();
+  // Reserve the send only after session creation has advanced its version.
+  if (!sessionId && !sessionTask) newSession();
+  const attempt = {version: sessionVersion};
+  pendingSend = attempt;
+  try {
+    const id = sessionTask ? await sessionTask.promise : sessionId;
+    if (pendingSend !== attempt || attempt.version !== sessionVersion || !id || sessionId !== id) return;
+    pendingSend = null;
+    await streamQuestion(q, id, attempt.version);
+  } finally {
+    if (pendingSend === attempt) pendingSend = null;
+  }
+}
 
+async function streamQuestion(q, id, version) {
   $('questionInput').value = '';
   $('welcome').classList.add('hidden');
   addMessage('user', q);
@@ -383,32 +461,43 @@ async function send() {
   cursor.className = 'cursor';
   bubble.appendChild(cursor);
 
-  streaming = true; $('sendBtn').disabled = true;
-  abortCtrl = new AbortController();
+  const run = {sessionId: id, token, version, controller: new AbortController(), reader: null, cursor};
+  activeStream = run;
+  streaming = true;
+  updateSendButton();
   let answer = '';
   try {
     const resp = await fetch(`${API}/ais/chat`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json;charset=utf-8', 'Authorization': token},
-      body: JSON.stringify({question: q, sessionId}),
-      signal: abortCtrl.signal
+      headers: {'Content-Type': 'application/json;charset=utf-8', 'Authorization': run.token},
+      body: JSON.stringify({question: q, sessionId: run.sessionId}),
+      signal: run.controller.signal
     });
-    if (resp.status === 401) { logout(); throw new Error('登录已过期'); }
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buf = '';
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, {stream: true});
-      const blocks = buf.split('\n\n');
-      buf = blocks.pop();
-      for (const block of blocks) {
-        const line = block.split('\n').find(l => l.startsWith('data:'));
-        if (!line) continue;
-        const payload = line.slice(5).trim();
-        if (!payload) continue;
-        let ev; try { ev = JSON.parse(payload); } catch { continue; }
+    if (!isCurrentStream(run)) {
+      if (resp.body) await resp.body.cancel();
+      return;
+    }
+    if (resp.status === 401) {
+      logout();
+      $('loginErr').textContent = '登录已过期，请重新登录';
+      return;
+    }
+    if (!resp.ok) throw new Error('请求失败（HTTP ' + resp.status + '）');
+    if (!resp.body || typeof resp.body.getReader !== 'function') throw new Error('响应不包含可读取的数据流');
+    const reader = run.reader = resp.body.getReader();
+    // Preserve the BOM for the parser, which removes exactly one leading BOM.
+    const decoder = new TextDecoder('utf-8', {ignoreBOM: true});
+    const parser = SSE.createSSEParser();
+    let stopped = false;
+    function consume(text) {
+      for (const event of parser.push(text)) {
+        if (!isCurrentStream(run)) return;
+        let ev; try { ev = JSON.parse(event.data); } catch { continue; }
+        if (!ev || typeof ev !== 'object') continue;
+        if (ev.eventType === 1002) {
+          stopped = true;
+          return;
+        }
         if (ev.eventType === 1001 && ev.eventData != null) {
           answer += ev.eventData;
           cursor.remove();
@@ -421,23 +510,48 @@ async function send() {
           card.innerHTML = `<div class="h">📎 附加数据</div><pre>${escapeHtml(JSON.stringify(ev.eventData, null, 2))}</pre>`;
           bubble.parentElement.appendChild(card);
         }
-        // 1002 = STOP
       }
     }
-  } catch (e) {
-    if (e.name !== 'AbortError') {
-      cursor.remove();
-      bubble.textContent = (answer || '') + '\n[出错了：' + e.message + ']';
+    while (isCurrentStream(run) && !stopped) {
+      const {done, value} = await reader.read();
+      if (!isCurrentStream(run)) break;
+      consume(done ? decoder.decode() : decoder.decode(value, {stream: true}));
+      if (done) { parser.end(); break; }
     }
+    if (stopped) await reader.cancel().catch(() => {});
+  } catch (e) {
+    if (isCurrentStream(run) && e.name !== 'AbortError') {
+      cursor.remove();
+      bubble.textContent = answer + '\n[出错了：' + e.message + ']';
+    }
+    run.controller.abort();
   } finally {
     cursor.remove();
-    streaming = false; $('sendBtn').disabled = false; abortCtrl = null;
+    if (run.reader) {
+      try { run.reader.releaseLock(); } catch { /* Reader already closed. */ }
+    }
+    // An old request may finish after a switch or a newer send has started.
+    if (activeStream === run) {
+      activeStream = null;
+      streaming = false;
+      updateSendButton();
+    }
   }
 }
 
 function stopGenerate() {
-  if (abortCtrl) abortCtrl.abort();
-  if (sessionId) api(`/ais/chat/stop?sessionId=${encodeURIComponent(sessionId)}`, {method: 'POST'}).catch(() => {});
+  const run = activeStream;
+  if (!run) return;
+  activeStream = null;
+  streaming = false;
+  updateSendButton();
+  run.cursor.remove();
+  run.controller.abort();
+  if (run.reader) run.reader.cancel().catch(() => {});
+  // A late stop response must not mutate a newly opened session.
+  fetch(`${API}/ais/chat/stop?sessionId=${encodeURIComponent(run.sessionId)}`, {
+    method: 'POST', headers: {'Authorization': run.token}
+  }).catch(() => {});
 }
 
 /* ================= 智能写作 ================= */
@@ -460,7 +574,7 @@ function openWriter() {
       <div class="m-head"><div class="m-title">✍️ 智能写作</div><div class="close">×</div></div>
       <div class="m-body">
         <div class="tpl-list">${Object.keys(templates).map(k =>
-          `<div class="tpl ${k === currentTpl ? 'active' : ''}" data-k="${k}">${TPL_NAMES[k] || k}</div>`).join('')}</div>
+          `<div class="tpl ${k === currentTpl ? 'active' : ''}" data-k="${escapeHtml(k)}">${escapeHtml(Object.hasOwn(TPL_NAMES, k) ? TPL_NAMES[k] : k)}</div>`).join('')}</div>
         <textarea id="tplInput" placeholder="在这里输入内容，例如：Java高级架构与微服务"></textarea>
         <div class="tpl-result hidden" id="tplResult"></div>
       </div>
